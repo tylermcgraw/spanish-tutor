@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import DailyIframe from '@daily-co/daily-js';
 import type { DailyCall } from '@daily-co/daily-js';
+import { DailyProvider, useDailyEvent } from '@daily-co/daily-react';
 
 interface VideoPlayerProps {
   conversationUrl: string;
@@ -9,13 +10,33 @@ interface VideoPlayerProps {
   onCallReady?: (callObject: DailyCall) => void;
 }
 
+// Inner component to handle events using Daily hooks
+const TavusEvents: React.FC<{ onAppMessage?: (msg: any) => void }> = ({ onAppMessage }) => {
+  useDailyEvent(
+    'app-message',
+    React.useCallback((event) => {
+      if (onAppMessage) {
+        onAppMessage(event);
+      }
+    }, [onAppMessage])
+  );
+  return null;
+};
+
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ conversationUrl, onLeave, onAppMessage, onCallReady }) => {
   const callWrapperRef = useRef<HTMLDivElement>(null);
-  const callInstanceRef = useRef<DailyCall | null>(null);
+  const [callObject, setCallObject] = useState<DailyCall | null>(null);
 
   useEffect(() => {
     if (!callWrapperRef.current || !conversationUrl) return;
-    if (callInstanceRef.current) return; // Prevent duplicate initialization
+
+    // ROBUST FIX: Check if an iframe already exists in the container
+    const existingFrame = callWrapperRef.current.querySelector('iframe');
+    if (existingFrame) {
+        // If frame exists, we assume the callObject is already attached/managed by Daily
+        // or we are in a double-mount race. We skip creation.
+        return;
+    }
 
     const newCallObject = DailyIframe.createFrame(callWrapperRef.current, {
       showLeaveButton: true,
@@ -27,40 +48,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ conversationUrl, onLeave, onA
       },
     });
 
-    callInstanceRef.current = newCallObject;
-
-    newCallObject.join({ url: conversationUrl });
-    
+    // Notify parent
     if (onCallReady) {
       onCallReady(newCallObject);
     }
 
+    newCallObject.join({ url: conversationUrl });
+
+    // Handle Leave
     newCallObject.on('left-meeting', () => {
-      // Handle leave logic
-      // Note: destroy() is handled in cleanup or here if needed, 
-      // but usually better to let the parent unmount this component.
-      // If we destroy here, we should update the ref.
-      onLeave();
+       // We don't destroy immediately here to allow DailyProvider to cleanup?
+       // Actually, we should let the parent unmount us.
+       onLeave();
     });
 
-    if (onAppMessage) {
-      newCallObject.on('app-message', (event) => {
-          onAppMessage(event);
-      });
-    }
+    setCallObject(newCallObject);
 
     return () => {
       // Cleanup
-      if (callInstanceRef.current) {
-        callInstanceRef.current.destroy();
-        callInstanceRef.current = null;
+      try {
+          newCallObject.destroy();
+      } catch (e) {
+          console.warn("Error destroying Daily object:", e);
       }
     };
-  }, [conversationUrl]); // Dependencies
+  }, [conversationUrl]);
 
   return (
     <div className="w-full h-full min-h-[500px] bg-black rounded-xl overflow-hidden shadow-2xl relative" ref={callWrapperRef}>
-      {/* Video frame will be injected here */}
+        {callObject && (
+            <DailyProvider callObject={callObject}>
+                <TavusEvents onAppMessage={onAppMessage} />
+            </DailyProvider>
+        )}
     </div>
   );
 };
