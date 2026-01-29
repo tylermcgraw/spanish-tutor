@@ -55,6 +55,9 @@ app.post('/api/conversation', async (req, res) => {
       persona_id: PERSONA_ID || req.body.persona_id,
       conversation_name: `Spanish Lesson for ${student_id}`,
       conversational_context: `Student's Vocabulary Context: ${vocabContext}`,
+      properties: {
+        'language': 'spanish',
+      }
     }, {
       headers: {
         'x-api-key': TAVUS_API_KEY,
