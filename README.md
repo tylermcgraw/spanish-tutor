@@ -1,6 +1,6 @@
-# Spanish Tutor AI (Tavus Integration)
+# Spanish AI Companion (Tavus Integration)
 
-An AI-powered Spanish tutor that adapts to your vocabulary level using real-time visual feedback.
+An AI-powered Spanish companion that adapts to your vocabulary level using real-time visual feedback.
 
 ## Setup
 

@@ -1,7 +1,7 @@
-# Spanish Tutor - Project Documentation
+# Spanish AI Companion - Project Documentation
 
 ## 1. Project Overview
-Spanish Tutor is an AI-powered language learning application built for the Tavus Customer Advocate take-home project. It utilizes Tavus's Conversational Video Interface (CVI) to facilitate "Active Crosstalk"—a language acquisition method where the AI tutor speaks exclusively in Spanish (L2) while the student responds in English (L1).
+Spanish AI Companion is an AI-powered language learning application built for the Tavus Customer Advocate take-home project. It utilizes Tavus's Conversational Video Interface (CVI) to facilitate "Active Crosstalk"—a language acquisition method where the AI tutor speaks exclusively in Spanish (L2) while the student responds in English (L1).
 
 The goal is to maintain Comprehensible Input (95% understanding) by using real-time visual perception and word-level memory to dynamically adjust the tutor's vocabulary and complexity.
 
