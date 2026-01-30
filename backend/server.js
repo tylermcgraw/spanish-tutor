@@ -68,19 +68,17 @@ app.post('/api/vocabulary', async (req, res) => {
 app.post('/api/conversation', async (req, res) => {
   try {
     const { student_id } = req.body;
-    // Default to 'tyler' if not provided for now
-    const safeStudentId = student_id || 'tyler';
     
     console.log(`Creating conversation with Persona ID: ${PERSONA_ID}`);
 
-    const { rows } = await db.query('SELECT word, status, score FROM vocabulary WHERE student_id = $1', [safeStudentId]);
+    const { rows } = await db.query('SELECT word, status, score FROM vocabulary WHERE student_id = $1', [student_id]);
     
     // Group vocabulary for better context
-    const knownWords = rows.filter(r => r.score > 5).map(r => r.word).join(', ');
-    const learningWords = rows.filter(r => r.score <= 5).map(r => r.word).join(', ');
+    const knownWords = rows.filter(r => r.score > 1).map(r => r.word).join(', ');
+    const learningWords = rows.filter(r => r.score <= 1).map(r => r.word).join(', ');
     
     const contextString = `
-      Student ID: ${safeStudentId}.
+      Student ID: ${student_id}.
       Vocabulary Status:
       - Mastered/Known Words: [${knownWords || "None"}]
       - Currently Learning: [${learningWords || "None"}]
@@ -92,9 +90,10 @@ app.post('/api/conversation', async (req, res) => {
     const response = await axios.post(TAVUS_API_URL, {
       persona_id: PERSONA_ID || req.body.persona_id,
       callback_url: CALLBACK_URL,
-      conversation_name: `Spanish Lesson for ${safeStudentId}`,
+      conversation_name: `Spanish Lesson for ${student_id}`,
       conversational_context: contextString,
       custom_greeting: 'Hola, soy Virginia. Como estas?',
+      memories: [`${student_id}_${PERSONA_ID}`],
       properties: {
         'language': 'spanish',
       }
