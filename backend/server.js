@@ -14,6 +14,7 @@ app.use(express.json());
 const TAVUS_API_KEY = process.env.TAVUS_API_KEY;
 const PERSONA_ID = process.env.PERSONA_ID;
 const TAVUS_API_URL = 'https://tavusapi.com/v2/conversations';
+const CALLBACK_URL = process.env.CALLBACK_URL;
 
 app.get('/api/vocabulary/:studentId', async (req, res) => {
   try {
@@ -90,6 +91,7 @@ app.post('/api/conversation', async (req, res) => {
 
     const response = await axios.post(TAVUS_API_URL, {
       persona_id: PERSONA_ID || req.body.persona_id,
+      callback_url: CALLBACK_URL,
       conversation_name: `Spanish Lesson for ${safeStudentId}`,
       conversational_context: contextString,
       custom_greeting: 'Hola, soy Virginia. Como estas?',
@@ -112,6 +114,146 @@ app.post('/api/conversation', async (req, res) => {
     });
   }
 });
+
+// In-memory buffer for active sessions
+// Map<conversationId, { studentId: string, wordCounts: Map<word, count> }>
+const activeSessions = new Map();
+
+// Helper to buffer vocabulary in memory
+const bufferVocabulary = (conversationId, studentId, text) => {
+  if (!text || !conversationId) return;
+  
+  // Initialize session buffer if needed
+  if (!activeSessions.has(conversationId)) {
+    activeSessions.set(conversationId, {
+      studentId,
+      wordCounts: new Map() // word -> count
+    });
+  }
+
+  const session = activeSessions.get(conversationId);
+  
+  // Tokenize
+  const words = text.toLowerCase().match(/[a-záéíóúñü]+/g);
+  if (!words) return;
+
+  for (const word of words) {
+    if (word.length < 3) continue;
+    const currentCount = session.wordCounts.get(word) || 0;
+    session.wordCounts.set(word, currentCount + 1);
+  }
+};
+
+app.post('/api/track-utterance', async (req, res) => {
+  const { student_id, text, conversation_id } = req.body;
+  
+  if (!student_id || !text || !conversation_id) {
+    // console.warn("Missing data in track-utterance", req.body);
+    // Fail silently or return error? Returning 400 is safer for debugging.
+    return res.status(400).json({ error: 'Missing student_id, text, or conversation_id' });
+  }
+
+  try {
+    bufferVocabulary(conversation_id, student_id, text);
+    res.json({ success: true, buffered: true });
+  } catch (err) {
+    console.error('Error buffering utterance:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+const flushSessionToDb = async (conversationId) => {
+  if (!activeSessions.has(conversationId)) {
+    console.log(`[Flush] No active session found for ID: ${conversationId}`);
+    return;
+  }
+
+  const session = activeSessions.get(conversationId);
+  const { studentId, wordCounts } = session;
+
+  if (wordCounts.size === 0) {
+    activeSessions.delete(conversationId);
+    return;
+  }
+
+  const client = await db.pool.connect();
+  try {
+    console.log(`[Flush] Saving ${wordCounts.size} words for student ${studentId}...`);
+    await client.query('BEGIN');
+
+    // 1. Fetch current stats for all words in this session
+    const wordsArray = Array.from(wordCounts.keys());
+    const queryText = 'SELECT word, exposures, score, status FROM vocabulary WHERE student_id = $1 AND word = ANY($2)';
+    const { rows } = await client.query(queryText, [studentId, wordsArray]);
+    
+    // Map current DB stats for easy lookup
+    const dbStats = new Map();
+    rows.forEach(r => dbStats.set(r.word, r));
+
+    // 2. Prepare UPSERTs
+    const upsertQuery = `
+      INSERT INTO vocabulary (student_id, word, exposures, score, status)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (student_id, word)
+      DO UPDATE SET exposures = $3, score = $4, status = $5
+    `;
+
+    for (const [word, count] of wordCounts.entries()) {
+      const current = dbStats.get(word) || { exposures: 0, score: 0, status: 'new' };
+      
+      const newExposures = current.exposures + count;
+      const newScore = current.score + (count * 0.1); // 0.1 score per exposure
+      
+      let newStatus = current.status;
+      // Status Logic:
+      // > 5 score => mastered
+      // > 1 score & 'new' => learning
+      if (newScore > 5 && newStatus !== 'mastered') {
+        newStatus = 'mastered';
+      } else if (newScore > 1 && newStatus === 'new') {
+        newStatus = 'learning';
+      }
+
+      await client.query(upsertQuery, [
+        studentId,
+        word,
+        newExposures,
+        newScore,
+        newStatus
+      ]);
+    }
+
+    await client.query('COMMIT');
+    console.log(`[Flush] Successfully saved session data.`);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[Flush] Database error:', err);
+  } finally {
+    client.release();
+    // Clear memory
+    activeSessions.delete(conversationId);
+  }
+};
+
+app.post('/webhook', async (req, res) => {
+  const event = req.body;
+  
+  console.log(`[Webhook] Received event: ${event.event_type}`);
+
+  if (event.event_type === 'system.shutdown') {
+    const { conversation_id } = event;
+    console.log(`[Webhook] Session Ended for conversation: ${conversation_id}`);
+    
+    // Flush buffer to DB
+    await flushSessionToDb(conversation_id);
+  }
+
+  res.json({ received: true });
+});
+
+app.get('/health', (req, res) => {
+  res.json('Healthy');
+})
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { getVocabulary, saveVocabularySession } from './api';
+import { useState, useEffect, useMemo } from 'react';
+import { getVocabulary, trackUtterance } from './api';
 
 export interface VocabWord {
   word: string;
@@ -11,12 +11,6 @@ export interface VocabWord {
 export const useVocabulary = (studentId: string) => {
   const [vocabulary, setVocabulary] = useState<Record<string, VocabWord>>({});
   
-  // Ref to hold latest vocabulary for auto-save interval to avoid closure staleness
-  const vocabularyRef = useRef(vocabulary);
-  useEffect(() => {
-      vocabularyRef.current = vocabulary;
-  }, [vocabulary]);
-
   // Derived state for stats - updates immediately when vocabulary changes
   const totalWordsLearned = useMemo(() => {
     return Object.values(vocabulary).filter(w => w.score > 5).length;
@@ -48,12 +42,16 @@ export const useVocabulary = (studentId: string) => {
     load();
   }, [studentId]);
 
-  const processTranscript = (text: string) => {
+  const processTranscript = (text: string, conversationId?: string) => {
     if (!text) return;
-    console.log(`Analyzing vocabulary in: "${text}"`);
+    // console.log(`Analyzing vocabulary in: "${text}"`);
     
-    // Simple tokenizer: extract words, remove punctuation, lowercase
-    // improved to handle Spanish accents
+    // 1. Send to Backend for persistence (Real-time)
+    trackUtterance(studentId, text, conversationId).catch(err => 
+      console.error("Failed to track utterance", err)
+    );
+
+    // 2. Optimistic UI Update (Keep local state in sync for stats)
     const words = text.toLowerCase().match(/[a-záéíóúñü]+/g);
     if (!words) return;
 
@@ -62,7 +60,6 @@ export const useVocabulary = (studentId: string) => {
       let changed = false;
 
       words.forEach(word => {
-        // Skip short words (a, el, y...) for simplicity in this prototype
         if (word.length < 3) return; 
 
         if (!next[word]) {
@@ -75,7 +72,6 @@ export const useVocabulary = (studentId: string) => {
             score: next[word].score + 0.1
           };
           
-          // Auto-upgrade status
           if (next[word].score > 5 && next[word].status !== 'mastered') {
             next[word].status = 'mastered';
           } else if (next[word].score > 1 && next[word].status === 'new') {
@@ -89,28 +85,5 @@ export const useVocabulary = (studentId: string) => {
     });
   };
 
-  const saveSession = async () => {
-    const currentVocab = vocabularyRef.current;
-    const wordsList = Object.values(currentVocab);
-    
-    if (wordsList.length === 0) return;
-
-    // console.log(`Auto-saving ${wordsList.length} words...`);
-    try {
-        await saveVocabularySession(studentId, wordsList);
-        // console.log("Session saved.");
-    } catch (e) {
-        console.error("Save failed", e);
-    }
-  };
-
-  // Auto-save every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-        saveSession();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [studentId]);
-
-  return { vocabulary, totalWordsLearned, totalWordsSeen, processTranscript, saveSession };
+  return { vocabulary, totalWordsLearned, totalWordsSeen, processTranscript };
 };

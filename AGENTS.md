@@ -17,24 +17,22 @@ The goal is to maintain Comprehensible Input (95% understanding) by using real-t
 
 ## 3. Architecture & Data Flow
 
-### A. The "Tavus Bridge" (Backend)
+### A. The "Tavus Bridge" & Buffering (Backend)
 - **Endpoint:** `POST /api/conversation`
 - **Flow:**
   1.  Fetches student's vocabulary from PostgreSQL.
-  2.  Constructs `conversational_context` string containing:
-      - Categorized vocabulary ("Mastered" vs "Learning").
-      - **Mandatory Greeting Instruction:** Explicitly tells the AI to start with "¡Hola! Soy Virginia..." (bypassing the need for a root `greeting` param).
-  3.  Calls Tavus API (`/v2/conversations`) using a pre-created `persona_id`.
-  4.  Returns `conversation_url` to frontend.
-- **Persona:** "Virginia" (Created once via `backend/create_persona.js`).
-  - System Prompt: Defines the "No English" rule and teaching style.
-  - ID stored in `.env` as `PERSONA_ID`.
+  2.  Constructs `conversational_context` (Mastered vs Learning words).
+  3.  Calls Tavus API; returns `conversation_url` and `conversation_id`.
+- **Real-time Tracking (Buffering):**
+  - **Endpoint:** `POST /api/track-utterance`
+  - When the frontend receives a transcript, it sends it to this endpoint.
+  - The backend **buffers** word counts in an in-memory `activeSessions` Map (keyed by `conversation_id`). No database writes occur during the call.
 
 ### B. Vocabulary Mastery Engine
-Tracks word-level proficiency using a dedicated `useVocabulary` hook in the frontend.
-- **Metrics:**
-  - **Words Learned:** Count of words with a `score > 5` (Mastered).
-  - **Words Seen:** Total count of unique words encountered in the user's vocabulary.
+- **Persistence (Webhook):**
+  - **Endpoint:** `POST /webhook`
+  - The backend listens for Tavus `system.shutdown` events.
+  - **On Shutdown:** The server flushes the buffer to the database. It calculates new scores (0.1 per exposure) and updates statuses (New -> Learning -> Mastered) in a single transaction.
 - **Database Schema (Postgres):**
   ```sql
   CREATE TABLE vocabulary (
@@ -46,22 +44,12 @@ Tracks word-level proficiency using a dedicated `useVocabulary` hook in the fron
     PRIMARY KEY (student_id, word)
   );
   ```
-- **Real-time Processing:**
-  - Frontend listens for `conversation.message` (role: replica) events via `app-message`.
-  - Tokenizes transcript, updates local counters, and auto-upgrades status (New -> Learning -> Mastered).
-- **Persistence:**
-  - Session data is saved to `POST /api/vocabulary` when the user leaves the call.
 
 ### C. The Adaptive Loop (Frontend)
-- **Video Player:** Renders Tavus stream using `DailyProvider`.
-- **Perception Listener:** Listens for `app-message` events from Tavus (Raven).
-  - Triggers: `user_state === 'confused'` or `gaze_averting`.
+- **Transcript Processing:** Frontend listens for `conversation.utterance` events.
+- **Syncing:** Calls backend `track-utterance` for persistence and updates local state for optimistic UI stats (Words Learned/Seen).
 - **Confusion Logic:**
-  - If confusion detected (or "Debug" button clicked):
-    1. Update local UI state (Difficulty: Easy).
-    2. Sends `app-message` back to Tavus with specific system instruction:
-       `"[System Instruction: User looks confused. Rephrase the last point simply using basic vocabulary. Do not switch to English.]"`
-  - Logic resets to "Normal" after a timeout.
+  - If confusion detected: Sends `app-message` (type: `context_update`) to Tavus with a system instruction to simplify language.
 
 ## 4. Implementation Details & Gotchas
 - **Tavus API:**

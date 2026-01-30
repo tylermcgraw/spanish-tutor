@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import VideoPlayer from './VideoPlayer';
 import StatsOverlay from './StatsOverlay';
 import { startConversation } from './api';
@@ -8,25 +8,16 @@ import type { DailyCall } from '@daily-co/daily-js';
 function App() {
   const STUDENT_ID = 'tyler_123';
   const [conversationUrl, setConversationUrl] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [callObject, setCallObject] = useState<DailyCall | null>(null);
   
   // Adaptive Engine
-  const { totalWordsLearned, totalWordsSeen, processTranscript, saveSession } = useVocabulary(STUDENT_ID);
+  const { totalWordsLearned, totalWordsSeen, processTranscript } = useVocabulary(STUDENT_ID);
   
   // Session State
-  const [difficulty, setDifficulty] = useState('Normal');
   const [lastEventDebug, setLastEventDebug] = useState<string>('');
-
-  // Save on tab close
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-        saveSession();
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [saveSession]);
 
   const handleStartSession = async () => {
     setLoading(true);
@@ -35,6 +26,7 @@ function App() {
       const data = await startConversation(STUDENT_ID);
       if (data.conversation_url) {
         setConversationUrl(data.conversation_url);
+        setConversationId(data.conversation_id);
       } else {
         setError('Failed to retrieve conversation URL.');
       }
@@ -47,8 +39,8 @@ function App() {
   };
 
   const handleLeave = () => {
-    saveSession();
     setConversationUrl(null);
+    setConversationId(undefined);
     setCallObject(null);
   };
 
@@ -105,29 +97,21 @@ function App() {
 
     if (isTranscriptEvent && transcriptText && role === 'replica') {
         console.log("Processing transcript:", transcriptText);
-        processTranscript(transcriptText);
+        processTranscript(transcriptText, conversationId);
     }
   };
 
   const triggerConfusionHandler = () => {
-      if (difficulty === 'Easy') return; // Already simplified
-
       console.log("User confused! Sending signal to Tavus...");
-      setDifficulty('Easy');
       
       if (callObject) {
           callObject.sendAppMessage({
               type: 'context_update', // Custom type defined by us/Tavus conventions
               // Sending a system instruction to the persona
-              content: "[System Instruction: User looks confused. Rephrase the last point simply using basic vocabulary. Do not switch to English.]",
+              content: "[System Instruction: User looks confused. Rephrase the last point simply using basic vocabulary. Speak slowly. Do not switch to English.]",
               role: 'system' 
           });
       }
-
-      // Reset difficulty indicator after 10 seconds of "recovery"
-      setTimeout(() => {
-          setDifficulty('Normal');
-      }, 10000);
   };
 
   // Debug function to simulate Tavus sending a perception event

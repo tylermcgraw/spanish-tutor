@@ -22,3 +22,11 @@ export const saveVocabularySession = async (studentId: string, words: any[]) => 
   return response.data;
 };
 
+export const trackUtterance = async (studentId: string, text: string, conversationId?: string) => {
+  const response = await axios.post(`${API_BASE_URL}/track-utterance`, {
+    student_id: studentId,
+    text,
+    conversation_id: conversationId
+  });
+  return response.data;
+};
