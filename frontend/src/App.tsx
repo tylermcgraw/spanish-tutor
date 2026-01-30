@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import VideoPlayer from './VideoPlayer';
 import StatsOverlay from './StatsOverlay';
-import { startConversation } from './api';
+import { startConversation, processPerception } from './api';
 import { useVocabulary } from './useVocabulary';
 import type { DailyCall } from '@daily-co/daily-js';
 
@@ -48,7 +48,7 @@ function App() {
     setCallObject(co);
   };
 
-  const handleAppMessage = (event: any) => {
+  const handleAppMessage = async (event: any) => {
     let data = event.data;
     
     // Robust parsing: sometimes data is stringified JSON
@@ -70,22 +70,33 @@ function App() {
     // Perception tools usually arrive as 'perception.tool_call' or similar
     const isToolCall = data.event_type?.includes('tool_call') || data.event_type === 'conversation.tool_call';
     
-    if (isToolCall) {
-        console.log(">>> TOOL EVENT RECEIVED:", data);
-        const toolName = data.properties?.name || data.tool_name;
-        
-        if (toolName === 'notify_if_user_confused') {
-            console.log("!!! Perception Tool Triggered: User looks confused !!!");
-            triggerConfusionHandler();
-        }
-    }
-
-    // 1. Handle Perception (Legacy/Raven-1 style)
-    if (data.event_type === 'perception') {
-        const state = data.user_state || 'engaged';
-        
-        if (state === 'confused' || state === 'gaze_averting') {
-            triggerConfusionHandler();
+    // 1. Check for confusion signals (Tool Call or Legacy Perception)
+    const toolName = data.properties?.name || data.tool_name;
+    const isConfusionTool = isToolCall && toolName === 'notify_if_user_confused';
+    
+    const isLegacyPerception = data.event_type === 'perception';
+    
+    if (isConfusionTool || isLegacyPerception) {
+        try {
+            // Offload logic to backend
+            const payload = {
+                event_type: data.event_type,
+                user_state: data.user_state,
+                tool_name: toolName
+            };
+            
+            const result = await processPerception(payload);
+            
+            if (result.action === 'update_context' && callObject) {
+                 console.log("Backend instructed to update context:", result.content);
+                 callObject.sendAppMessage({
+                    type: 'context_update', 
+                    content: result.content,
+                    role: 'system' 
+                });
+            }
+        } catch (err) {
+            console.error("Error processing perception on backend:", err);
         }
     }
 
@@ -101,19 +112,6 @@ function App() {
     }
   };
 
-  const triggerConfusionHandler = () => {
-      console.log("User confused! Sending signal to Tavus...");
-      
-      if (callObject) {
-          callObject.sendAppMessage({
-              type: 'context_update', // Custom type defined by us/Tavus conventions
-              // Sending a system instruction to the persona
-              content: "[System Instruction: User looks confused. Rephrase the last point simply using basic vocabulary. Speak slowly. Do not switch to English.]",
-              role: 'system' 
-          });
-      }
-  };
-
   // Debug function to simulate Tavus sending a perception event
   const simulateConfusion = () => {
       handleAppMessage({
@@ -125,18 +123,15 @@ function App() {
     <div className="min-h-screen bg-gray-900 text-white flex flex-col font-sans">
       <header className="p-6 border-b border-gray-800 flex justify-between items-center">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-          Spanish Tutor AI
+          Virginia - AI Spanish Tutor
         </h1>
         <div className="flex items-center gap-4">
             <button 
                 onClick={simulateConfusion}
                 className="text-xs px-2 py-1 bg-gray-800 rounded border border-gray-700 hover:bg-gray-700"
             >
-                Debug: Trigger Confusion
+                Trigger Confusion
             </button>
-            <div className="text-xs font-mono text-gray-500 max-w-xs truncate" title={lastEventDebug}>
-              Last Evt: {lastEventDebug || "None"}
-            </div>
             <div className="text-sm text-gray-400">
             Student: {STUDENT_ID}
             </div>

@@ -251,6 +251,35 @@ app.post('/webhook', async (req, res) => {
   res.json({ received: true });
 });
 
+app.post('/api/process-perception', (req, res) => {
+  const { event_type, user_state, tool_name } = req.body;
+  
+  console.log(`[Perception] Processing event: ${event_type}, State: ${user_state}, Tool: ${tool_name}`);
+
+  let isConfused = false;
+
+  // 1. Check Tool Calls (Raven-0 style)
+  if (tool_name === 'notify_if_user_confused') {
+    isConfused = true;
+  }
+
+  // 2. Check Perception State (Raven-1/Legacy style)
+  if (event_type === 'perception') {
+    if (user_state === 'confused' || user_state === 'gaze_averting') {
+      isConfused = true;
+    }
+  }
+
+  if (isConfused) {
+    return res.json({
+      action: 'update_context',
+      content: "[System Instruction: User looks confused. Rephrase the last point simply using basic vocabulary. Speak slowly. Do not switch to English.]"
+    });
+  }
+
+  return res.json({ action: 'ignore' });
+});
+
 app.get('/health', (req, res) => {
   res.json('Healthy');
 })

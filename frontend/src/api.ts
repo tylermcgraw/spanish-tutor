@@ -30,3 +30,8 @@ export const trackUtterance = async (studentId: string, text: string, conversati
   });
   return response.data;
 };
+
+export const processPerception = async (data: any) => {
+  const response = await axios.post(`${API_BASE_URL}/process-perception`, data);
+  return response.data;
+};
