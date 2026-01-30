@@ -16,9 +16,6 @@ function App() {
   // Adaptive Engine
   const { totalWordsLearned, totalWordsSeen, processTranscript } = useVocabulary(STUDENT_ID);
   
-  // Session State
-  const [lastEventDebug, setLastEventDebug] = useState<string>('');
-
   const handleStartSession = async () => {
     setLoading(true);
     setError(null);
@@ -60,8 +57,6 @@ function App() {
         }
     }
     
-    setLastEventDebug(JSON.stringify(data).slice(0, 100)); // Debug view
-
     if (!data) return;
 
     console.log(`[Tavus Event] ${data.event_type}`, data);
@@ -112,26 +107,13 @@ function App() {
     }
   };
 
-  // Debug function to simulate Tavus sending a perception event
-  const simulateConfusion = () => {
-      handleAppMessage({
-          data: { type: 'perception', user_state: 'confused' }
-      });
-  };
-
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col font-sans">
       <header className="p-6 border-b border-gray-800 flex justify-between items-center">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-          Virginia - AI Spanish Tutor
+          Virginia - Spanish AI Companion
         </h1>
         <div className="flex items-center gap-4">
-            <button 
-                onClick={simulateConfusion}
-                className="text-xs px-2 py-1 bg-gray-800 rounded border border-gray-700 hover:bg-gray-700"
-            >
-                Trigger Confusion
-            </button>
             <div className="text-sm text-gray-400">
             Student: {STUDENT_ID}
             </div>
@@ -158,7 +140,7 @@ function App() {
               Ready to practice?
             </h2>
             <p className="text-xl text-gray-400">
-              Start a real-time video session with Virginia, your AI Spanish tutor.
+              Start a real-time video session with Virginia, your Spanish AI companion.
             </p>
             
             {error && (
