@@ -26,35 +26,71 @@ app.get('/api/vocabulary/:studentId', async (req, res) => {
 });
 
 app.post('/api/vocabulary', async (req, res) => {
-  const { student_id, word, exposures, score, status } = req.body;
+  const client = await db.pool.connect();
   try {
+    const { student_id, words } = req.body;
+    
+    if (!words || !Array.isArray(words)) {
+      return res.status(400).json({ error: 'Invalid body, expected "words" array.' });
+    }
+
+    await client.query('BEGIN');
+
     const upsertQuery = `
       INSERT INTO vocabulary (student_id, word, exposures, score, status)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (student_id, word)
       DO UPDATE SET exposures = $3, score = $4, status = $5;
     `;
-    await db.query(upsertQuery, [student_id, word, exposures, score, status]);
-    res.json({ success: true });
+
+    for (const item of words) {
+       await client.query(upsertQuery, [
+         student_id, 
+         item.word, 
+         item.exposures, 
+         item.score, 
+         item.status
+       ]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, count: words.length });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
   }
 });
 
 app.post('/api/conversation', async (req, res) => {
   try {
     const { student_id } = req.body;
+    // Default to 'tyler' if not provided for now
+    const safeStudentId = student_id || 'tyler';
 
-    const { rows } = await db.query('SELECT word, status FROM vocabulary WHERE student_id = $1', [student_id]);
-    const vocabContext = rows.length > 0 
-      ? rows.map(r => `${r.word} (${r.status})`).join(', ')
-      : "No prior vocabulary.";
+    const { rows } = await db.query('SELECT word, status, score FROM vocabulary WHERE student_id = $1', [safeStudentId]);
+    
+    // Group vocabulary for better context
+    const knownWords = rows.filter(r => r.score > 5).map(r => r.word).join(', ');
+    const learningWords = rows.filter(r => r.score <= 5).map(r => r.word).join(', ');
+    
+    const contextString = `
+      Student ID: ${safeStudentId}.
+      Vocabulary Status:
+      - Mastered/Known Words: [${knownWords || "None"}]
+      - Currently Learning: [${learningWords || "None"}]
+      
+      INSTRUCTION: Prioritize using "Mastered" words to build confidence. Introduce "Learning" words slowly. 
+      If the list is empty, start with very basic A1 greetings and cognates.
+    `;
 
     const response = await axios.post(TAVUS_API_URL, {
       persona_id: PERSONA_ID || req.body.persona_id,
-      conversation_name: `Spanish Lesson for ${student_id}`,
-      conversational_context: `Student's Vocabulary Context: ${vocabContext}`,
+      conversation_name: `Spanish Lesson for ${safeStudentId}`,
+      conversational_context: contextString,
+      custom_greeting: 'Hola, soy Virginia. Como estas?',
       properties: {
         'language': 'spanish',
       }
