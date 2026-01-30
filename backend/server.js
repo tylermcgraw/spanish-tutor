@@ -93,7 +93,7 @@ app.post('/api/conversation', async (req, res) => {
       conversation_name: `Spanish Lesson for ${student_id}`,
       conversational_context: contextString,
       custom_greeting: 'Hola, soy Virginia. Como estas?',
-      memories: [`${student_id}_${PERSONA_ID}`],
+      memory_stores: [`${student_id}_${PERSONA_ID}`],
       properties: {
         'language': 'spanish',
       }

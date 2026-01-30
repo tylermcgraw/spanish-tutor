@@ -13,7 +13,7 @@ export const useVocabulary = (studentId: string) => {
   
   // Derived state for stats - updates immediately when vocabulary changes
   const totalWordsLearned = useMemo(() => {
-    return Object.values(vocabulary).filter(w => w.score > 5).length;
+    return Object.values(vocabulary).filter(w => w.score > 1).length;
   }, [vocabulary]);
 
   const totalWordsSeen = useMemo(() => Object.keys(vocabulary).length, [vocabulary]);
