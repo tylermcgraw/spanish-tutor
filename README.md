@@ -14,6 +14,9 @@ An AI-powered Spanish companion that adapts to your vocabulary level using real-
       ```
       TAVUS_API_KEY=your_key_here
       DATABASE_URL=postgresql://user:password@localhost:5432/spanish_tutor
+      PERSONA_ID=your_persona_id_here
+      CALLBACK_URL=https://your-ngrok-url.ngrok-free.app/webhook
+      PORT=3001 # Optional, defaults to 3001
       ```
 
 3.  **Database:**
