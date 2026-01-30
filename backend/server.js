@@ -69,6 +69,8 @@ app.post('/api/conversation', async (req, res) => {
     const { student_id } = req.body;
     // Default to 'tyler' if not provided for now
     const safeStudentId = student_id || 'tyler';
+    
+    console.log(`Creating conversation with Persona ID: ${PERSONA_ID}`);
 
     const { rows } = await db.query('SELECT word, status, score FROM vocabulary WHERE student_id = $1', [safeStudentId]);
     
