@@ -1,25 +1,38 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import VideoPlayer from './VideoPlayer';
 import StatsOverlay from './StatsOverlay';
 import { startConversation } from './api';
+import { useVocabulary } from './useVocabulary';
 import type { DailyCall } from '@daily-co/daily-js';
 
 function App() {
+  const STUDENT_ID = 'tyler_123';
   const [conversationUrl, setConversationUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [callObject, setCallObject] = useState<DailyCall | null>(null);
   
+  // Adaptive Engine
+  const { totalWordsLearned, totalWordsSeen, processTranscript, saveSession } = useVocabulary(STUDENT_ID);
+  
   // Session State
   const [difficulty, setDifficulty] = useState('Normal');
-  const [wordsLearned, setWordsLearned] = useState(12); // Mock initial value
-  const [userState, setUserState] = useState('engaged');
+  const [lastEventDebug, setLastEventDebug] = useState<string>('');
+
+  // Save on tab close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+        saveSession();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [saveSession]);
 
   const handleStartSession = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await startConversation('tyler_123');
+      const data = await startConversation(STUDENT_ID);
       if (data.conversation_url) {
         setConversationUrl(data.conversation_url);
       } else {
@@ -34,6 +47,7 @@ function App() {
   };
 
   const handleLeave = () => {
+    saveSession();
     setConversationUrl(null);
     setCallObject(null);
   };
@@ -43,35 +57,77 @@ function App() {
   };
 
   const handleAppMessage = (event: any) => {
-    console.log('App Message:', event);
-    // Mocking Raven logic: assuming event.data contains perception
-    if (event.data && event.data.type === 'perception') {
-        const state = event.data.user_state;
-        setUserState(state);
+    let data = event.data;
+    
+    // Robust parsing: sometimes data is stringified JSON
+    if (typeof data === 'string') {
+        try {
+            data = JSON.parse(data);
+        } catch (e) {
+            console.warn("Received non-JSON app-message:", data);
+        }
+    }
+    
+    setLastEventDebug(JSON.stringify(data).slice(0, 100)); // Debug view
+
+    if (!data) return;
+
+    console.log(`[Tavus Event] ${data.event_type}`, data);
+
+    // 0. Handle Perception Tool Calls (Raven-0)
+    // Perception tools usually arrive as 'perception.tool_call' or similar
+    const isToolCall = data.event_type?.includes('tool_call') || data.event_type === 'conversation.tool_call';
+    
+    if (isToolCall) {
+        console.log(">>> TOOL EVENT RECEIVED:", data);
+        const toolName = data.properties?.name || data.tool_name;
+        
+        if (toolName === 'notify_if_user_confused') {
+            console.log("!!! Perception Tool Triggered: User looks confused !!!");
+            triggerConfusionHandler();
+        }
+    }
+
+    // 1. Handle Perception (Legacy/Raven-1 style)
+    if (data.event_type === 'perception') {
+        const state = data.user_state || 'engaged';
         
         if (state === 'confused' || state === 'gaze_averting') {
             triggerConfusionHandler();
         }
     }
+
+    // 2. Handle Transcript (Replica Speech)
+    const isTranscriptEvent = data.event_type === 'conversation.utterance';
+
+    const transcriptText = data.properties?.speech;
+    const role = data.properties?.role;
+
+    if (isTranscriptEvent && transcriptText && role === 'replica') {
+        console.log("Processing transcript:", transcriptText);
+        processTranscript(transcriptText);
+    }
   };
 
   const triggerConfusionHandler = () => {
-      // Logic to simplify language
-      setDifficulty('Easy');
+      if (difficulty === 'Easy') return; // Already simplified
+
       console.log("User confused! Sending signal to Tavus...");
+      setDifficulty('Easy');
       
-      // In a real app, send message to Tavus
       if (callObject) {
           callObject.sendAppMessage({
-              type: 'context_update',
-              instruction: "User looks lost. Simplify vocabulary for the next 3 turns.",
+              type: 'context_update', // Custom type defined by us/Tavus conventions
+              // Sending a system instruction to the persona
+              content: "[System Instruction: User looks confused. Rephrase the last point simply using basic vocabulary. Do not switch to English.]",
+              role: 'system' 
           });
       }
 
-      // Debounce/Reset after a few seconds
+      // Reset difficulty indicator after 10 seconds of "recovery"
       setTimeout(() => {
-          setDifficulty('Normal'); // Reset or keep it easy depending on logic
-      }, 5000);
+          setDifficulty('Normal');
+      }, 10000);
   };
 
   // Debug function to simulate Tavus sending a perception event
@@ -94,8 +150,11 @@ function App() {
             >
                 Debug: Trigger Confusion
             </button>
+            <div className="text-xs font-mono text-gray-500 max-w-xs truncate" title={lastEventDebug}>
+              Last Evt: {lastEventDebug || "None"}
+            </div>
             <div className="text-sm text-gray-400">
-            Student: Tyler
+            Student: {STUDENT_ID}
             </div>
         </div>
       </header>
@@ -110,9 +169,8 @@ function App() {
               onCallReady={handleCallReady}
             />
             <StatsOverlay 
-                difficulty={difficulty} 
-                wordsLearned={wordsLearned}
-                userState={userState}
+                totalWordsLearned={totalWordsLearned}
+                totalWordsSeen={totalWordsSeen}
             />
           </div>
         ) : (

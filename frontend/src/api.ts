@@ -8,3 +8,17 @@ export const startConversation = async (studentId: string) => {
   });
   return response.data;
 };
+
+export const getVocabulary = async (studentId: string) => {
+  const response = await axios.get(`${API_BASE_URL}/vocabulary/${studentId}`);
+  return response.data;
+};
+
+export const saveVocabularySession = async (studentId: string, words: any[]) => {
+  const response = await axios.post(`${API_BASE_URL}/vocabulary`, {
+    student_id: studentId,
+    words
+  });
+  return response.data;
+};
+
